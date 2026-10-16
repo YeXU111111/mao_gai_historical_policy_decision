@@ -1,0 +1,11 @@
+# 本机运行时数据：上游 Key、管理密码哈希、访问统计、启动日志。
+# 一律不入库——这里一旦提交进 git 历史，事后删文件也删不干净。
+# 用 local/* 而不是 local/，否则下面那条 ! 白名单不生效（git 不会进被排除的目录）。
+local/*
+!local/config.example.json
+
+# 临时文件
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
