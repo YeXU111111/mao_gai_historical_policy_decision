@@ -2,7 +2,7 @@
   "upstream": {
     "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "model": "qwen-max",
-    "key": "把服务商给的 API Key 粘在这里"
+    "key": ""
   },
   "rate": { "per10min": 40, "dayMax": 400 }
 }

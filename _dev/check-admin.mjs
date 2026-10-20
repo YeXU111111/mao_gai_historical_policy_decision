@@ -4,16 +4,24 @@
 import { readFileSync, writeFileSync } from "node:fs";
 const BASE = process.env.GAP_BASE || "http://127.0.0.1:4620";
 const CFG = new URL("../local/config.json", import.meta.url);
-const SECRET = "SECRET-DO-NOT-LEAK-1234";
+const original = readFileSync(CFG, "utf8");
+/* 泄漏扫描与"跑完应与开跑前一致"都用配置里原本那把 Key，别写死常量——
+   写死的话，配置文件里若是另一把 Key，这套用例自己就会把自己的断言跑失败。 */
+const SECRET = (JSON.parse(original).upstream || {}).key || "";
 const PW = "keclass7";
 const results = [];
 let leaks = [];
-const original = readFileSync(CFG, "utf8");
 
 function ok(name, cond, detail) { results.push({ name, pass: !!cond, detail: detail === undefined ? "" : String(detail).slice(0, 150) }) }
 function scan(where, text) { if (String(text || "").includes(SECRET)) leaks.push(where) }
+/* 每次运行换一个来源 IP：解锁限流是按来源分桶的，固定来源会让"上一次跑"打满的额度
+   污染"这一次跑"（表现为一上来就 429，后面全 403）。 */
+const RUN_IP = "198.51.100." + (1 + Math.floor(Math.random() * 250));
 async function hit(path, opts = {}) {
-  const headers = Object.assign({ "x-forwarded-for": opts.local ? "" : "203.0.113.9" }, opts.headers || {});
+  const headers = Object.assign({
+    "x-forwarded-for": opts.local ? "" : "203.0.113.9",
+    "cf-connecting-ip": opts.local ? "" : (opts.ip || RUN_IP),
+  }, opts.headers || {});
   const res = await fetch(BASE + path, { method: opts.method || "GET", headers, body: opts.body, redirect: "manual" });
   const text = await res.text();
   scan(path + " body", text);
