@@ -415,12 +415,19 @@ const server=http.createServer(async(req,res)=>{
       catch(e){return json(res,e.code||400,{ok:false,error:e.message})}
       const t0=Date.now();
       /* 浏览器那头一断（刷新、关页、切题），立刻取消上游请求：
-         流式生成是边产边推的，掐了连接通常也就止住了后面那几十秒的计费。 */
+         流式生成是边产边推的，掐了连接通常也就止住了后面那几十秒的计费。
+         注意：abort() 会把被取消请求的 rejection 抛出去，必须自己吞掉——
+         之前没吞，客户端一刷新就能把整个服务进程打挂。 */
       const ac=new AbortController();
-      res.on("close",()=>{if(!res.writableEnded)ac.abort()});
+      let upstreamDone=false;
+      res.on("close",()=>{
+        if(res.writableEnded||upstreamDone)return;
+        try{ac.abort()}catch(_){}
+      });
       let up;
       try{up=await callUpstream(Object.assign({model:cfg().model},payload),ac.signal)}
-      catch(e){if(e.code===499)return;return json(res,e.code||502,{ok:false,error:e.message})}
+      catch(e){upstreamDone=true;if(e.code===499)return;return json(res,e.code||502,{ok:false,error:e.message})}
+      upstreamDone=true;
       const{res:ures}=up;
       const ct=ures.headers.get("content-type")||"";
       if(!ures.ok){
@@ -461,6 +468,12 @@ const server=http.createServer(async(req,res)=>{
     /* 单次请求出错不能把整个服务带走——公网下那等于全班一起断 */
     try{json(res,500,{ok:false,error:"服务端出错："+(e&&e.message?e.message:String(e))})}catch(_){res.destroy()}
   }
+});
+
+/* 课堂服务不能因为一次客户端断开就整体挂掉：被取消的请求、断掉的流都会冒出
+   没人接的 rejection，这里统一吞掉并记一行，进程继续服务其他人。 */
+process.on("unhandledRejection",(e)=>{
+  console.log("[已吞掉一个未处理的 rejection] "+(e&&e.message?e.message:String(e)));
 });
 
 server.on("error",e=>{

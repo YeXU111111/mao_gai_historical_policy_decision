@@ -1,7 +1,23 @@
 /* 部署链路端到端检查（没有访问码那一版）。需要先在 4611 起 mock、在 4620 起 server.mjs --public。
    node _dev/check.mjs
-   只对 http://127.0.0.1:4620 说话，用 x-forwarded-for 模拟"从公网进来"。 */
+   只对 http://127.0.0.1:4620 说话，用 x-forwarded-for 模拟"从公网进来"。
+   注意：中间几段会临时改写 local/config.json（限流额度、手写字段），所以开跑先拍一份快照，
+   正常结束、抛错、Ctrl+C 都会还原——上一次就是中途崩了，把 rate 留在了测试用的 0/0。 */
+import { readFileSync, writeFileSync } from "node:fs";
 const BASE = process.env.GAP_BASE || "http://127.0.0.1:4620";
+const CFG_PATH = new URL("../local/config.json", import.meta.url);
+const CFG_ORIGINAL = readFileSync(CFG_PATH, "utf8");
+let cfgRestored = false;
+function restoreCfg() {
+  if (cfgRestored) return;
+  cfgRestored = true;
+  try { writeFileSync(CFG_PATH, CFG_ORIGINAL, { mode: 0o600 }); } catch { }
+}
+process.on("exit", restoreCfg);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(sig, () => { restoreCfg(); process.exit(130); });
+}
+process.on("uncaughtException", (e) => { restoreCfg(); console.log("脚本崩了：" + (e && e.message)); process.exit(2); });
 const SECRET = "SECRET-DO-NOT-LEAK-1234";
 const results = [];
 let leaks = [];

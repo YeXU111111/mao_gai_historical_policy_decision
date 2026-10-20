@@ -105,22 +105,23 @@ function judgeBody(mode,ans){
 再想想：这一手除了"打"，还要就地立起什么、把地分给谁。还剩 2 次机会。`;
 }
 
-function theoryBody(ans){
-  const deep=/条件|矛盾|力量|财政|农村|控制/.test(String(ans||""));
-  if(deep)return`[[V:deep]]
-【说到了】
-你说到"城里敌人强、农村控制薄弱"，这确实是当时最硬的一条：正规战打不动，而省界山区是敌人统治的缝隙。
-【缺什么】
-还差一条经济条件：根据地要养兵，就得靠分田换粮食和兵源，这一点没说出来。
-【示范】
-当时敌军主力集中在城市与交通线，红军正面硬拼等于以短击长；而广大农村统治薄弱、农民又有土地要求，正好可以把武装斗争、土地革命和政权建设捆在一起做。城市打不下、外援等不来，只有就地扎根才能活下来并长大。原理：具体问题具体分析，矛盾的普遍性寓于特殊性之中。`;
-  return`[[V:shallow]]
-【说到了】
-你复述了这项政策的作用，但没有回到当时卡在哪里。
-【缺什么】
-缺"换别的路为什么走不通"这一半：如果没有说清城市打不动、外援等不来，就推不出"非此不可"。
-【示范】
-当时敌军主力守着城市与交通线，正面硬拼没有胜算；农村统治薄弱、农民要地，才有立足的可能。两条条件叠在一起，才逼出"到农村去、就地建政权"这一步。原理：一切从实际出发，实事求是。`;
+function theoryBody(){
+  return [
+    "【一句话】",
+    "这是把马克思主义基本原理同中国具体实际相结合的产物，也是新民主主义革命道路的关键一步。",
+    "",
+    "【体现的思想】",
+    "- 实事求是、一切从实际出发｜当时城市攻坚无胜算，只能从敌人控制薄弱的农村找立足点。",
+    "- 群众路线｜靠分田换取农民支持，兵源与粮食都从这里来。",
+    "- 新民主主义革命理论中的农村包围城市｜不先打城市，而是就地建政权、逐步扩大。",
+    "",
+    "【对应的内容】",
+    "- 新民主主义革命理论｜这一步正是该理论的核心道路。",
+    "- 马克思主义中国化｜不是照搬城市暴动，而是按中国国情改换道路。",
+    "",
+    "【前提的呼应】",
+    "前提里“攻城受挫、补给断绝”这条条件，才使就地扎根成为当时走得通的选择。"
+  ].join("\n");
 }
 
 const server=http.createServer(async(req,res)=>{
@@ -136,10 +137,8 @@ const server=http.createServer(async(req,res)=>{
     let content;
     if(!j.messages||!j.messages.some(m=>m.role==="system"))content="通";
     else if(String(sys.content).includes("出题器"))content=qText(sys.content);
-    else if(String(sys.content).includes("追问判卷者")){
-      const said=/【玩家对[^\n]*的回答】\n([\s\S]*)$/.exec(String(last.content||""));
-      content=theoryBody(said?said[1]:"");
-    }else{
+    else if(String(sys.content).includes("理论对照者"))content=theoryBody();
+    else{
       const ans=/【本次作答】\n([\s\S]*?)\n\n【第/.exec(String(last.content||""));
       const mode=/\u3010公布\u3011模板输出/.test(String(last.content||""))?"final":"normal";
       const forced=/玩家已明确放弃/.test(String(last.content||""))?"reveal":mode;
