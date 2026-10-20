@@ -18,7 +18,8 @@ for (const tag of ORDER) {
   src += script.slice(s, e) + "\n";
 }
 src += `
-globalThis.__api={esc,norm,md,parseFields,leakWords,checkLeak,isRepeat,parseVerdict,stripMarkText,
+globalThis.__api={esc,norm,md,parseFields,leakWords,checkLeak,isRepeat,parseVerdict,
+  parseTheoryVerdict,theoryBonus,THEORY_BONUS,stripMarkText,
   yearOf,inEra,eraById,ERAS,normalise,blank,PHASES};
 `;
 
@@ -78,6 +79,13 @@ ok("空清单 → 不判重复", !A.isRepeat({ answer: "任意", premise: "任�
 /* ---------- 判卷标记 ---------- */
 ok("识别 correct", A.parseVerdict("[[V:correct]]\n【作用】…") === "correct");
 ok("识别 reveal（大小写与空格容错）", A.parseVerdict("  [[ v : reveal ]]") === "reveal");
+ok("追问标记 deep", A.parseTheoryVerdict("[[V:deep]]\n【说到了】…") === "deep");
+ok("追问标记 part（大写与空格容错）", A.parseTheoryVerdict("[[ v : PART ]]") === "part");
+ok("追问标记缺失 → 空串", A.parseTheoryVerdict("没有标记") === "");
+ok("deep 加 30 分", A.theoryBonus("[[V:deep]]") === 30);
+ok("part 加 15 分", A.theoryBonus("[[V:part]]") === 15);
+ok("shallow 不加分", A.theoryBonus("[[V:shallow]]") === 0);
+ok("没标记不加分", A.theoryBonus("乱写") === 0);
 ok("没标记 → 空串", A.parseVerdict("模型没按格式回") === "");
 ok("stripMarkText 去掉完整标记", A.stripMarkText("[[V:wrong]]\n【差在哪】…") === "【差在哪】…");
 ok("stripMarkText 去掉流式半截标记", A.stripMarkText("正文[[V:corr") === "正文");
