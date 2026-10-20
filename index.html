@@ -479,14 +479,25 @@ header .brand .sub{color:rgba(255,247,230,.72)}
 .crumbs .cur{color:var(--pri);font-weight:800}
 .crumbs .sep{color:var(--gold,#b8873a)}
 
-/* Hero：宣纸上的红头文件 */
+/* Hero：左文右图。右边是青年毛泽东艺术雕塑（用户提供的图，放 assets/），
+   用 mask 把左边缘羽化进宣纸，避免像贴上去的。 */
 .hero{
-  background:
-    linear-gradient(180deg,#fffcf4,#fbf4e6);
+  position:relative;overflow:hidden;padding:0;
+  display:grid;grid-template-columns:minmax(0,1.26fr) minmax(0,.74fr);
+  background-color:#fffcf4;
   border:1px solid var(--line);
   border-top:4px solid var(--pri);
   box-shadow:0 10px 28px rgba(90,60,20,.12);
 }
+.hero-body{position:relative;z-index:2;padding:26px 22px 22px 26px}
+.hero-art{
+  position:relative;min-height:100%;
+  background:url("assets/hero.png") 52% 26%/cover no-repeat;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0%,rgba(0,0,0,.55) 12%,#000 30%);
+  mask-image:linear-gradient(90deg,transparent 0%,rgba(0,0,0,.55) 12%,#000 30%);
+}
+/* 光芒只在文字那一侧，别糊在照片上 */
+.rays{inset:0 40% 0 0;opacity:.55}
 .hero::before,.hero::after{background:none}
 .hero h2{color:#3a1a14}
 .hero .lead{color:var(--bc2)}
@@ -640,7 +651,18 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
   .tabbar{display:flex}
   body{padding-bottom:70px}
   .crumbs,main{padding-left:14px;padding-right:14px}
-  .hero{padding:22px 18px 18px;border-radius:var(--r-xl)}
+  .hero{
+    grid-template-columns:1fr;border-radius:var(--r-xl);
+  }
+  .hero-body{padding:22px 18px 16px}
+  /* 窄屏不再左右分栏：照片提到顶部做横带，向下淡出接文字 */
+  .hero-art{
+    min-height:0;height:132px;order:-1;
+    background-position:50% 26%;
+    -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.72) 62%,transparent 100%);
+    mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.72) 62%,transparent 100%);
+  }
+  .rays{inset:22% 0 0 0;opacity:.45}
   .hero h2{font-size:24px}
   .game{border-radius:var(--r-2xl)}
   .tape{padding:28px 16px 12px}
@@ -650,7 +672,7 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
   .foot .links{margin-left:0}
 }
 @media (min-width:1000px){
-  .hero h2{font-size:36px}
+  .hero h2{font-size:32px;letter-spacing:.03em}
 }
 /* 尊重系统的"减少动态效果"：投影与晕动敏感的人不需要平滑滚动和呼吸动画 */
 @media (prefers-reduced-motion:reduce){
@@ -687,6 +709,7 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
 <main>
   <section class="hero">
     <div class="rays" aria-hidden="true"></div>
+    <div class="hero-body">
     <span class="ribbon">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2l2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.2l-5.88 3.1 1.12-6.55L2.48 9.12l6.58-.96z"/></svg>
       实事求是 · 一堂历史政策课
@@ -710,6 +733,8 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
         <button data-era="reform">改革开放 1978 后</button>
       </div>
     </div>
+    </div>
+    <div class="hero-art" aria-hidden="true"></div>
   </section>
 
   <section class="game">

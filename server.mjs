@@ -231,12 +231,18 @@ function ensureSid(req,res){
   return s;
 }
 /* ---------------- 静态文件（白名单，local/ 与源码一律不发） ---------------- */
-const MIME={".html":"text/html;charset=utf-8",".js":"text/javascript;charset=utf-8",".css":"text/css;charset=utf-8"};
+const MIME={".html":"text/html;charset=utf-8",".js":"text/javascript;charset=utf-8",".css":"text/css;charset=utf-8",
+  ".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".webp":"image/webp",".svg":"image/svg+xml"};
 const PUBLIC_FILES=new Set(["/index.html","/favicon.ico"]);
+/* 装饰图放 assets/：只放行图片后缀，别的一律不认 */
+const ASSET_RE=/^\/assets\/[A-Za-z0-9._-]+\.(png|jpe?g|webp|svg|gif)$/i;
 function serveStatic(req,res,rel){
-  const clean=normalize("/"+rel.replace(/\0/g,"")).replace(/\\/g,"/");
+  /* rel 本身就带前导 /，别再拼一个：Windows 下 "//assets/..." 会被 normalize 当 UNC 路径，
+     末尾还会多补一个斜杠，白名单就永远匹配不上。 */
+  const rel0=String(rel||"").replace(/\0/g,"");
+  const clean=normalize(rel0.startsWith("/")?rel0:"/"+rel0).replace(/\\/g,"/");
   const abs=join(ROOT,clean);
-  if(!abs.startsWith(ROOT)||!PUBLIC_FILES.has(clean))return send(res,404,"not found");
+  if(!abs.startsWith(ROOT)||!(PUBLIC_FILES.has(clean)||ASSET_RE.test(clean)))return send(res,404,"not found");
   if(!existsSync(abs))return send(res,404,"not found");
   try{
     const buf=readFileSync(abs);
