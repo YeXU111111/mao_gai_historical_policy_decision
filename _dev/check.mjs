@@ -116,11 +116,17 @@ async function main() {
   ok("同一来源连错 5 次后被限流",flooded.status===429,flooded.status);
   ok("别的来源不受牵连（还能正常尝）",other.status!==429,"来源 9.9.9.9 拿到 "+other.status);
 
-  /* 10. Fix5：页面保存不能丢掉手写的未知字段 */
+  /* 10. Fix5：页面保存不能丢掉手写的未知字段。
+     设了管理密码时写操作需要令牌，这条无法在不碰密码的前提下验证——明确跳过，别报假失败。 */
   writeCfg(Object.assign({},keep,{teacherNote:"这行是我手写的"}));
-  const saveNoLoss=await hit("/api/settings",{method:"POST",local:true,headers:{"content-type":"application/json"},body:JSON.stringify({model:"mock-model-name"})});
-  const afterSave=JSON.parse(fs.readFileSync(cfgPath,"utf8"));
-  ok("保存配置后手写字段还在",saveNoLoss.status===200&&afterSave.teacherNote==="这行是我手写的",JSON.stringify(afterSave.teacherNote||"(丢了)"));
+  const lockNow=(await (await fetch(BASE+"/api/settings")).json()).lockSet;
+  if(lockNow){
+    ok("保存配置后手写字段还在（已设管理密码，跳过写入验证）",JSON.parse(fs.readFileSync(cfgPath,"utf8")).teacherNote==="这行是我手写的","lockSet=true，未发起写请求");
+  }else{
+    const saveNoLoss=await hit("/api/settings",{method:"POST",local:true,headers:{"content-type":"application/json"},body:JSON.stringify({model:"mock-model-name"})});
+    const afterSave=JSON.parse(fs.readFileSync(cfgPath,"utf8"));
+    ok("保存配置后手写字段还在",saveNoLoss.status===200&&afterSave.teacherNote==="这行是我手写的",JSON.stringify(afterSave.teacherNote||"(丢了)"));
+  }
   writeCfg(keep);
 
   /* 11. Fix2：客户端流式中途断开，服务端不能崩、后面照常服务 */

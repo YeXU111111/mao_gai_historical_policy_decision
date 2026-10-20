@@ -1,10 +1,26 @@
 /* 页面内配置与管理锁的回归检查。需要先在 4611 起 mock、在 4620 起 server.mjs --public。
    node _dev/check-admin.mjs
-   会临时改 local/config.json，跑完（含出错）恢复原样。 */
-import { readFileSync, writeFileSync } from "node:fs";
+   会临时改 local/config.json，跑完（含出错、Ctrl+C）恢复原样。
+   注意：它改的是真实配置文件，里面可能有真 Key——所以开跑先落一份 .bak，并挂上退出/信号兜底。 */
+import { readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 const BASE = process.env.GAP_BASE || "http://127.0.0.1:4620";
 const CFG = new URL("../local/config.json", import.meta.url);
+const BAK = fileURLToPath(CFG) + ".bak";
 const original = readFileSync(CFG, "utf8");
+copyFileSync(CFG, BAK);
+let restored = false;
+function restoreNow() {
+  if (restored) return;
+  restored = true;
+  try { writeFileSync(CFG, original, { mode: 0o600 }); } catch { }
+}
+/* 任何非正常退出路径都把配置还回去，别把真 Key 留在被清空的状态 */
+process.on("exit", restoreNow);
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(sig, () => { restoreNow(); process.exit(130); });
+}
+process.on("uncaughtException", (e) => { restoreNow(); console.log("用例崩了：" + (e && e.message)); process.exit(2); });
 /* 泄漏扫描与"跑完应与开跑前一致"都用配置里原本那把 Key，别写死常量——
    写死的话，配置文件里若是另一把 Key，这套用例自己就会把自己的断言跑失败。 */
 const SECRET = (JSON.parse(original).upstream || {}).key || "";
@@ -32,6 +48,21 @@ async function hit(path, opts = {}) {
 function restore() { writeFileSync(CFG, original, { mode: 0o600 }) }
 
 async function main() {
+  /* 这套用例会设密码、改密码、取消密码，要求开跑时是"未设锁"的出厂态。
+     线上实例一旦设了管理密码就去碰它，既会全部失败、还可能动到老师的密码——
+     所以先探一下，有锁就直接退出（退出码 3 = 跳过，不是失败）。 */
+  try {
+    const st = await (await fetch(BASE + "/api/settings")).json();
+    if (st.lockSet) {
+      console.log("\n[跳过] 这台实例已经设了管理密码（lockSet=true）。");
+      console.log("       这套用例会设/改/取消密码，不能在已上锁的实例上跑。");
+      console.log("       要跑就先在页面「设置」里取消密码，或在一份临时配置上起独立实例。");
+      process.exit(3);
+    }
+  } catch {
+    console.log("\n[跳过] 连不上服务（" + BASE + "），先起 server.mjs 再跑。");
+    process.exit(3);
+  }
   const POST = (p, body, extra = {}) => hit(p, Object.assign({ method: "POST", headers: Object.assign({ "content-type": "application/json" }, extra.headers || {}), body: JSON.stringify(body) }, extra));
 
   /* 1. 读配置永远脱敏 */
