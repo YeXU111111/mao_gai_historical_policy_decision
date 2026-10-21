@@ -889,13 +889,18 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
         <div class="field"><label>解锁</label>
           <div class="row2"><input id="h-pw" type="password" placeholder="管理密码"><button class="btn" id="h-unlock">解锁</button></div>
         </div>
-        <div class="field"><label>设置 / 修改 / 取消密码</label>
-          <div class="row2"><input id="h-cur" type="password" placeholder="原密码（第一次设可留空）">
+        <div class="field" id="sec-pw-set" style="display:none"><label>设置密码</label>
+          <div class="row2"><input id="h-newpw" type="password" placeholder="新密码（至少 4 位）">
+            <button class="mini" id="h-setpw">设置密码</button></div>
+          <p class="note">第一次设置不用原密码；设好之后，改配置都要先解锁。</p>
+        </div>
+        <div class="field" id="sec-pw-change" style="display:none"><label>修改密码</label>
+          <div class="row2"><input id="h-cur" type="password" placeholder="原密码">
             <input id="h-next" type="password" placeholder="新密码（至少 4 位）"></div>
           <div class="row2" style="margin-top:7px">
-            <button class="mini" id="h-setpw">设定 / 修改</button>
+            <button class="mini" id="h-chpw">修改密码</button>
             <button class="mini danger" id="h-delpw">取消密码</button></div>
-          <p class="note" id="h-locknote"></p>
+          <p class="note">改密码和取消密码都要先验原密码，不留"留空即取消"的暗门。</p>
         </div>
         <p class="note">忘了密码的出路：在这台电脑上删掉 <code>local/config.json</code> 里的 <code>"lock"</code> 那一段，重启服务即可——配置不会丢，丢的只是那把锁。</p>
         <p class="note" id="h-result"></p>
@@ -1922,6 +1927,10 @@ async function hLoad(keepForm){
       $("#h-prov").value=p?p.id:(hCfg.baseUrl?"custom":"dashscope");
     }
     $("#h-day").value=hCfg.rate?hCfg.rate.dayMax:$("#h-day").value;
+    /* 首次设密码与之后改密码是两件事：没锁只显示"设置"，有锁才显示"修改/取消" */
+    const pwSet=$("#sec-pw-set"),pwChg=$("#sec-pw-change");
+    if(pwSet)pwSet.style.display=hCfg.lockSet?"none":"block";
+    if(pwChg)pwChg.style.display=hCfg.lockSet?"block":"none";
     $("#h-keyhint").textContent=hCfg.hasKey?("服务端现存："+hCfg.keyHint+"　明文不会下发到这里。"):"服务端还没有 Key。";
     $("#h-clearkey").disabled=!hCfg.hasKey;
     hState();pullStatus();
@@ -1982,14 +1991,21 @@ async function hLoad(keepForm){
       if(j.token)setHTok(j.token);
       if(!next)setHTok("");
       hSay(okText+(j.note||""),"ok");
-      $("#h-cur").value="";$("#h-next").value="";
+      $("#h-newpw").value="";$("#h-cur").value="";$("#h-next").value="";
       await hLoad(true);
     }catch(e){hSay("没成："+e.message,"err")}
   }
+  /* 设置密码与修改密码分开：首次设没有原密码，设好之后才出现"修改"。 */
   $("#h-setpw").onclick=()=>{
-    const next=$("#h-next").value;
-    if(!next){hSay("「新密码」那格是空的。要取消密码请走旁边那个按钮——免得手滑把锁卸了。","err");return}
-    lockOp(next,{current:$("#h-cur").value,next},"密码已设好。");
+    const next=$("#h-newpw").value;
+    if(!next){hSay("先想一个至少 4 位的新密码。","err");return}
+    lockOp(next,{current:"",next},"密码已设好。");
+  };
+  $("#h-chpw").onclick=()=>{
+    const cur=$("#h-cur").value,next=$("#h-next").value;
+    if(!cur){hSay("修改密码要先填「原密码」。","err");return}
+    if(!next){hSay("「新密码」那格是空的。要取消密码请用旁边的按钮。","err");return}
+    lockOp(next,{current:cur,next},"密码已改好。");
   };
   $("#h-delpw").onclick=()=>{
     const cur=$("#h-cur").value;
