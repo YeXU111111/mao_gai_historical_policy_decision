@@ -1419,12 +1419,13 @@ async function submit(){
     if(v==="correct"){
       st.played++;st.solved++;st.score+=SCORE[attempt-1]||SCORE[SCORE.length-1];
       if(attempt===1)st.first++;
-      /* 答对之后补一张理论对照：这一步体现了毛概里的哪些思想与内容 */
-      st.t={phase:"loading",fb:""};
     }else if(v==="reveal"){st.played++}
-    if(v!=="correct"&&(st.phase!=="wrong"||attempt>=MAX_TRY))pushArchive(v);
+    /* 答对与揭晓都要给理论对照：没答出来的学生更需要这一步把政策对回教材 */
+    const wantMap=v==="correct"||v==="reveal";
+    if(wantMap)st.t={phase:"loading",fb:""};
+    if(!wantMap&&(st.phase!=="wrong"||attempt>=MAX_TRY))pushArchive(v);
     save();paint();paintScore();
-    if(v==="correct")loadTheoryMap();
+    if(wantMap)loadTheoryMap();
   }catch(e){
     st.tries.pop();st.draft=ans;
     /* 开头 bankRound() 已经把上一轮的判定收进历史了；这一手既然没判出去，
@@ -1444,12 +1445,14 @@ async function submit(){
 /* 只展示、不提问、不判分。中途换题就不写回，避免串台。 */
 async function loadTheoryMap(){
   if(!st.q)return;
-  const qRaw=st.qRaw, ans=st.tries[st.tries.length-1]||"";
+  const qRaw=st.qRaw;
+  /* 答对时用学生自己的表述；揭晓时用题目里的正确政策——别把最后一次错答喂进去 */
+  const ans=st.verdict==="correct"?(st.tries[st.tries.length-1]||""):(st.q.answer||"");
   const entry=pushArchive(st.verdict);      /* 先落一条存档，理论对照到了再补进去 */
   st.t={phase:"loading",fb:""};
   save();paint();
   const msgs=[{role:"system",content:THEORY_RULES},
-    {role:"user",content:"【题目原文】\n"+String(qRaw).trim()+"\n\n【玩家填对的政策】\n"+ans}];
+    {role:"user",content:"【题目原文】\n"+String(qRaw).trim()+"\n\n【本题中间那一步的政策】\n"+ans}];
   const payload={model:settings.model,messages:msgs,temperature:0.4,
     max_tokens:Math.max(900,Number(settings.maxtok||1800)),stream:!!settings.stream};
   try{
@@ -1500,8 +1503,9 @@ async function revealFlow(){
     st.phase=st.verdict==="correct"?"correct":"reveal";
     st.played++;if(st.phase==="correct")st.solved++;
     st.gaveUp=true;
-    pushArchive(st.verdict);
+    st.t={phase:"loading",fb:""};   /* 放弃/用尽也是揭晓，同样要给理论对照 */
     save();paint();paintScore();
+    loadTheoryMap();                /* 它内部先落存档，再把对照补进同一条 */
   }catch(e){
     const back=st.rounds.pop();
     if(back){st.fb=back.fb;st.verdict=back.verdict;}
@@ -1759,7 +1763,7 @@ function paint(){
   b3.disabled=busy;b3.onclick=()=>{showErr("");showNote("");askNew()};
   row.append(b1,b2,b3);
 
-  const theoryOn=st.phase==="correct"&&!!st.t&&!st.gaveUp;
+  const theoryOn=(st.phase==="correct"||st.phase==="reveal")&&!!st.t;
   if(!theoryOn&&(st.phase==="question"||st.phase==="judging"||canType||st.tries.length<MAX_TRY)){
     const ed=document.createElement("div");ed.className="editor";
     const ta=document.createElement("textarea");ta.id="ans";
