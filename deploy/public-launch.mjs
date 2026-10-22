@@ -107,7 +107,7 @@ function writeCfg(obj) {
 async function ensureCfg() {
   let c = readCfg();
   if (!c) {
-    let seed = { upstream: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-max', key: '' }, rate: { per10min: 40, dayMax: 400 } };
+    let seed = { upstream: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-max', key: '' }, rate: { per10min: 0, dayMax: 0 } };
     try { seed = JSON.parse(readFileSync(join(LOCAL_DIR, 'config.example.json'), 'utf8')); } catch { /* 没有示例就用内置 */ }
     await writeCfg(seed);
     log('           local/config.json 不存在，已按模板建好一份。');
@@ -282,7 +282,6 @@ async function main() {
   log('');
   log('  你自己在本机开：' + LOCAL_APP + '/（本机免验码）');
   log('  想让网址立刻失效：关掉这个窗口。想挡住乱改配置的人：在页面「设置」里设一道管理密码。');
-  log('  想让网址立刻失效：关掉这个窗口。');
   log('  隧道断了会自动重连（本机服务不断），但重连后网址会变——日志在 local/launch.log。');
   log('\n—— 这个窗口请一直开着。Ctrl+C 或关窗口 = 网址立刻断。——');
 

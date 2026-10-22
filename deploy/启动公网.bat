@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
 rem One-click public launch for policy_gap (middle-step history fill game).
-rem Starts the local proxy server in --public mode, opens a Cloudflare quick tunnel,
-rem prints the share link (access code carried in the URL fragment) and copies it to the clipboard.
+rem Starts the local proxy server in --public mode and opens a Cloudflare quick tunnel,
+rem prints the share link and copies it to the clipboard.
 rem Close this window to kill the public URL.
 rem
 rem Keep all Chinese out of this file: cmd.exe parses .bat with the OEM codepage,

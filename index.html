@@ -876,7 +876,7 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
       </section>
 
       <section class="sec">
-        <h3 class="sec-h">课堂配额<span class="sec-sub">0 表示不限</span></h3>
+        <h3 class="sec-h">课堂配额<span class="sec-sub">0 表示不限（默认）</span></h3>
         <div class="row2">
           <div class="field" style="flex:1;min-width:150px"><label>每会话 10 分钟内最多</label><input id="h-per" type="number" min="0" step="5"></div>
           <div class="field" style="flex:1;min-width:150px"><label>全场当日最多</label><input id="h-day" type="number" min="0" step="10"></div>
@@ -987,16 +987,17 @@ function md(src){
   fp();fl();
   return out.join("");
 }
-/* 行首【名称】独占一行 → 切成字段 */
+/* 行首【名称】独占一行 → 切成字段。先把 CRLF 归一，否则行尾多个 \r，标记就认不出来。 */
 function parseFields(raw){
-  const re=/^[ \t]*【([^】\n]{1,12})】[ \t]*$/gm;
+  const src=String(raw||"").replace(/\r\n?/g,"\n");
+  const re=/^[ \t\u3000]*【([^】\n]{1,12})】[ \t\u3000]*$/gm;
   const marks=[];let m;
-  while((m=re.exec(String(raw||"")))!==null)marks.push({k:m[1],at:m.index,head:m.index+m[0].length});
+  while((m=re.exec(src))!==null)marks.push({k:m[1],at:m.index,head:m.index+m[0].length});
   if(!marks.length)return{};
   const o={};
   marks.forEach((it,i)=>{
-    const stop=i+1<marks.length?marks[i+1].at:String(raw).length;
-    o[it.k]=String(raw).slice(it.head,stop).trim();
+    const stop=i+1<marks.length?marks[i+1].at:src.length;
+    o[it.k]=src.slice(it.head,stop).trim();
   });
   return o;
 }
@@ -1134,7 +1135,7 @@ const PHASES=new Set(["idle","question","correct","wrong","reveal","asking","jud
 let settings=read(LS.set,{prov:"dashscope",url:PRESETS[0].url,model:PRESETS[0].model,key:"",temp:0.8,maxtok:1800,stream:true,big:false});
 let archive=read(LS.log,[]);
 let st=normalise(read(LS.st,null));
-let busy=false,controller=null,timer=null;
+let busy=false,controller=null,timer=null,draftSave=null;
 
 function normalise(s){
   if(!s||typeof s!=="object")return blank();
@@ -1144,10 +1145,13 @@ function normalise(s){
   let draft=typeof s.draft==="string"?s.draft:"";
   let phase=PHASES.has(s.phase)?s.phase:"idle";
   /* 判卷途中被刷新：那次提交从没拿到判定，不该算用掉一次。
-     退回未计次、把答案还给输入框——否则学生一刷新就白丢一次机会，题还变成答不动的死局。 */
+     退回未计次、把答案还给输入框——否则学生一刷新就白丢一次机会，题还变成答不动的死局。
+     但"看真实政策"也复用 judging 这个阶段，它并没追加作答，不能跟着一起 pop。 */
   if(s.phase==="judging"){
-    const last=tries.pop();
-    if(last&&!draft)draft=last;
+    if(!s.revealPending){
+      const last=tries.pop();
+      if(last&&!draft)draft=last;
+    }
     phase=q?"question":"idle";
   }else if(s.phase==="asking"){
     phase="idle";
@@ -1156,14 +1160,22 @@ function normalise(s){
   return{...b,...s,phase,q,tries,draft,scope:(s.scope==="point"?"point":"big"),
     era:eraById(s.era).id,
     rounds:Array.isArray(s.rounds)?s.rounds.filter(r=>r&&typeof r.fb==="string"):[],
-    t:(s.t&&typeof s.t==="object"&&["ask","judging","done"].includes(s.t.phase))?s.t:null,
+    /* 页面刷新会把在途的理论对照请求一起掐掉，loading 必须落成 error，
+       否则重开后卡在"正在对回教材"且没有重试入口。 */
+    t:(()=>{
+      const t=s.t;
+      if(!t||typeof t!=="object")return null;
+      if(t.phase==="loading")return{...t,phase:"error",fb:"页面刷新打断了这次生成，点「重试」再来一次。"};
+      return (t.phase==="done"||t.phase==="error")?t:null;
+    })(),
+    revealPending:false,
     qRaw:typeof s.qRaw==="string"?s.qRaw:"",
     recent:Array.isArray(s.recent)?s.recent.filter(x=>x&&typeof x.a==="string"):[],
     verdict:typeof s.verdict==="string"?s.verdict:"",
     fb:typeof s.fb==="string"?s.fb:""};
 }
-function blank(){return{scope:"big",era:"any",qRaw:"",q:null,tries:[],rounds:[],attempt:0,phase:"idle",fb:"",verdict:"",draft:"",gaveUp:false,recent:[],t:null,
-  played:0,score:0,first:0,solved:0}}
+function blank(){return{scope:"big",era:"any",qRaw:"",q:null,tries:[],rounds:[],attempt:0,phase:"idle",fb:"",verdict:"",draft:"",gaveUp:false,recent:[],t:null,mapT:null,
+  revealPending:false,played:0,score:0,first:0,solved:0}}
 /* PURE-END-F */
 const save=()=>write(LS.st,st);
 
@@ -1394,7 +1406,7 @@ async function submit(){
   st.tries.push(ans);st.draft="";
   const attempt=st.tries.length;
   const finalMode=attempt>=MAX_TRY;
-  busy=true;st.phase="judging";st.fb="";st.verdict="";save();paint();
+  busy=true;st.phase="judging";st.fb="";st.verdict="";st.revealPending=false;save();paint();
   const t0=Date.now();
   timer=setInterval(()=>{const s=$("#wait");if(s)s.textContent="已等待 "+Math.round((Date.now()-t0)/1000)+" 秒。判卷带推演，通常要 20—60 秒。"},3000);
   const msgs=[{role:"system",content:JUDGE_RULES},{role:"user",content:judgeContext(ans,attempt,finalMode)}];
@@ -1422,7 +1434,6 @@ async function submit(){
     }else if(v==="reveal"){st.played++}
     /* 答对与揭晓都要给理论对照：没答出来的学生更需要这一步把政策对回教材 */
     const wantMap=v==="correct"||v==="reveal";
-    if(wantMap)st.t={phase:"loading",fb:""};
     if(!wantMap&&(st.phase!=="wrong"||attempt>=MAX_TRY))pushArchive(v);
     save();paint();paintScore();
     if(wantMap)loadTheoryMap();
@@ -1445,10 +1456,13 @@ async function submit(){
 /* 只展示、不提问、不判分。中途换题就不写回，避免串台。 */
 async function loadTheoryMap(){
   if(!st.q)return;
+  if(st.t&&st.t.phase==="loading")return;   /* 双击重试/重复触发只认第一次 */
   const qRaw=st.qRaw;
   /* 答对时用学生自己的表述；揭晓时用题目里的正确政策——别把最后一次错答喂进去 */
   const ans=st.verdict==="correct"?(st.tries[st.tries.length-1]||""):(st.q.answer||"");
-  const entry=pushArchive(st.verdict);      /* 先落一条存档，理论对照到了再补进去 */
+  /* 重试要补到同一条存档上，不能每点一次「重试」就多一条重复答卷 */
+  let entry=st.mapT?archive.find(a=>a&&a.t===st.mapT):null;
+  if(!entry){entry=pushArchive(st.verdict);st.mapT=entry.t}
   st.t={phase:"loading",fb:""};
   save();paint();
   const msgs=[{role:"system",content:THEORY_RULES},
@@ -1458,7 +1472,8 @@ async function loadTheoryMap(){
   try{
     let raw=await callUpstream(payload,acc=>{
       if(st.qRaw!==qRaw)return;
-      const body=$("#map-body");if(body)body.innerHTML=md(stripMarkText(acc));
+      const body=$("#map-body");
+      if(body){body.innerHTML=md(stripMarkText(acc));const w=$("#map-wait");if(w)w.remove()}
     });
     if(!String(raw).trim()&&settings.stream){payload.stream=false;raw=await callUpstream(payload,null)}
     if(!String(raw).trim())throw new Error("模型回了空正文。");
@@ -1487,7 +1502,7 @@ async function revealFlow(){
   bankRound();
   st.draft="";
   const attempt=st.tries.length+1;
-  busy=true;st.phase="judging";st.fb="";st.verdict="";save();paint();
+  busy=true;st.phase="judging";st.fb="";st.verdict="";st.revealPending=true;save();paint();
   const t0=Date.now();
   timer=setInterval(()=>{const s=$("#wait");if(s)s.textContent="已等待 "+Math.round((Date.now()-t0)/1000)+" 秒。"},3000);
   const msgs=[{role:"system",content:JUDGE_RULES},
@@ -1502,11 +1517,11 @@ async function revealFlow(){
     st.fb=raw;st.verdict=parseVerdict(raw)||"reveal";
     st.phase=st.verdict==="correct"?"correct":"reveal";
     st.played++;if(st.phase==="correct")st.solved++;
-    st.gaveUp=true;
-    st.t={phase:"loading",fb:""};   /* 放弃/用尽也是揭晓，同样要给理论对照 */
+    st.gaveUp=true;st.revealPending=false;
     save();paint();paintScore();
     loadTheoryMap();                /* 它内部先落存档，再把对照补进同一条 */
   }catch(e){
+    st.revealPending=false;
     const back=st.rounds.pop();
     if(back){st.fb=back.fb;st.verdict=back.verdict;}
     st.phase="question";
@@ -1774,7 +1789,11 @@ function paint(){
       :"这一题已经收口了。";
     ta.maxLength=2000;
     ta.value=st.draft||"";
-    ta.oninput=()=>{st.draft=ta.value};
+    ta.oninput=()=>{
+      st.draft=ta.value;
+      /* 不点提交就刷新也会丢字：停手 400ms 后落一次本地状态，别每个键都写 localStorage */
+      clearTimeout(draftSave);draftSave=setTimeout(save,400);
+    };
     ta.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter"){e.preventDefault();st.draft=ta.value;submit()}};
     ed.appendChild(ta);ed.appendChild(row);
     host.appendChild(ed);
@@ -1788,8 +1807,9 @@ function paint(){
     box.innerHTML='<div class="theory-head"><span class="theory-tag">理论对照</span>'
       +'<b>这一步体现了毛概里的哪些思想</b></div>';
     if(st.t.phase==="loading"){
-      const p=document.createElement("p");p.className="dots";p.textContent="正在把这一手对回教材…";
-      box.appendChild(p);
+      const p=document.createElement("p");p.className="dots";p.id="map-wait";p.textContent="正在把这一手对回教材…";
+      const body=document.createElement("div");body.className="theory-body";body.id="map-body";
+      box.append(p,body);
     }else if(st.t.phase==="error"){
       const p=document.createElement("p");p.className="theory-lead";
       p.textContent="理论对照没拿到："+String(st.t.fb||"").slice(0,160);
@@ -1926,11 +1946,11 @@ async function hLoad(keepForm){
       $("#h-url").value=hCfg.baseUrl||"";
       $("#h-model").value=hCfg.model||"";
       $("#h-per").value=hCfg.rate?hCfg.rate.per10min:"";
+      $("#h-day").value=hCfg.rate?hCfg.rate.dayMax:"";
       const dd=$("#h-dirty");if(dd)dd.classList.remove("on");   /* 已与服务器对齐 */
       const p=PRESETS.find(x=>x.url.replace(/\/+$/,"")===String(hCfg.baseUrl||"").replace(/\/+$/,""));
       $("#h-prov").value=p?p.id:(hCfg.baseUrl?"custom":"dashscope");
     }
-    $("#h-day").value=hCfg.rate?hCfg.rate.dayMax:$("#h-day").value;
     /* 首次设密码与之后改密码是两件事：没锁只显示"设置"，有锁才显示"修改/取消" */
     const pwSet=$("#sec-pw-set"),pwChg=$("#sec-pw-change");
     if(pwSet)pwSet.style.display=hCfg.lockSet?"none":"block";

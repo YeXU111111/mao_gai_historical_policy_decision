@@ -54,6 +54,10 @@ ok("parseFields 结果不吞并下一个标记", f["结果"] === "到1929年，�
 ok("parseFields 答案只含答案", f["答案"] === "\"工农武装割据\"", f["答案"]);
 ok("parseFields 空输入返回空对象", same(A.parseFields(""), {}));
 ok("parseFields 无标记返回空对象", same(A.parseFields("随便一段话"), {}));
+const fCrlf = A.parseFields(Q.replace(/\n/g, "\r\n"));
+ok("parseFields 认 CRLF 行尾", fCrlf["前提"] === "攻城受挫，部队减员过半。" && Object.keys(fCrlf).length === 6, Object.keys(fCrlf).join(","));
+const fWide = A.parseFields(Q.replace("【时期】", "\u3000【时期】\u3000"));
+ok("parseFields 容忍标记两侧全角空格", fWide["前提"] === "攻城受挫，部队减员过半。", fWide["时期"]);
 
 /* ---------- 泄漏自检 ---------- */
 const leakHits = A.checkLeak({
@@ -109,6 +113,15 @@ ok("判卷中刷新 → 退回那次尝试", n1.tries.length === 0, n1.tries.len
 ok("判卷中刷新 → 答案回到输入框", n1.draft === "第一手", n1.draft);
 const n2 = A.normalise({ ...judging, draft: "已经写的新内容" });
 ok("已有草稿时不被覆盖", n2.draft === "已经写的新内容", n2.draft);
+const nGiveUp = A.normalise({ ...judging, revealPending: true });
+ok("公布途中刷新 → 不吞掉上一次作答", nGiveUp.tries.length === 1 && nGiveUp.phase === "question", nGiveUp.tries.length + "/" + nGiveUp.phase);
+const mapBase = { phase: "correct", q: { premise: "前提", result: "结果", answer: "答案" }, qRaw: "原文", verdict: "correct", tries: ["答案"] };
+const nLoading = A.normalise({ ...mapBase, t: { phase: "loading", fb: "" } });
+ok("刷新时理论对照 loading → 可重试的 error", nLoading.t && nLoading.t.phase === "error" && /重试/.test(nLoading.t.fb), nLoading.t && nLoading.t.phase);
+const nDone = A.normalise({ ...mapBase, t: { phase: "done", fb: "理论正文" } });
+ok("刷新保留理论对照完成态", nDone.t && nDone.t.phase === "done" && nDone.t.fb === "理论正文", nDone.t && nDone.t.phase);
+const nErr = A.normalise({ ...mapBase, t: { phase: "error", fb: "网络断了" } });
+ok("刷新保留理论对照失败态", nErr.t && nErr.t.phase === "error" && nErr.t.fb === "网络断了", nErr.t && nErr.t.phase);
 ok("asking 刷新 → idle", A.normalise({ phase: "asking" }).phase === "idle");
 ok("未知 phase → idle", A.normalise({ phase: "乱写" }).phase === "idle");
 ok("没有题的 question → idle", A.normalise({ phase: "question", q: null }).phase === "idle");

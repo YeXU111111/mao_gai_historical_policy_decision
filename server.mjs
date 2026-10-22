@@ -9,7 +9,7 @@
 
    上游配置写在 local/config.json（本文件不读环境变量，避免和 hist_sim 那套混起来）：
      { "upstream": { "baseUrl": "https://…/v1", "model": "qwen-max", "key": "sk-…" },
-       "rate": { "per10min": 40, "dayMax": 400 }, "lock": { "salt": "…", "hash": "…" } }
+       "rate": { "per10min": 0, "dayMax": 0 }, "lock": { "salt": "…", "hash": "…" } }
    每次请求现读，改完不用重启。lock 段没有就是"未设管理密码"。 */
 
 import http from "node:http";
@@ -44,7 +44,8 @@ function writeJson(p,obj){
   writeFileSync(tmp,JSON.stringify(obj,null,2),{mode:0o600});
   renameSync(tmp,p);
 }
-/* 限流数字：0 是"不限"，不是"没填"。没填（缺字段/非数字）才回落到默认值。 */
+/* 限流数字：0 是"不限"，不是"没填"。缺字段/非数字回落到 0，也就是默认不限——
+   课堂上一轮轮追问很容易撞到小额度，宁可默认放开，需要时在设置里填数字收紧。 */
 function num(v,fallback){const n=Number(v);return Number.isFinite(n)&&n>=0?n:fallback}
 function cfg(){
   const c=readJson(CFG,{});
@@ -53,8 +54,8 @@ function cfg(){
     baseUrl:String(u.baseUrl||"").trim().replace(/\/+$/,""),
     model:String(u.model||"").trim(),
     key:String(u.key||"").trim(),
-    per10min:num(r.per10min,40),
-    dayMax:num(r.dayMax,400),
+    per10min:num(r.per10min,0),
+    dayMax:num(r.dayMax,0),
   };
 }
 /* ---------------- 管理锁：改配置要有令牌 ---------------- */
@@ -148,15 +149,20 @@ function keyHint(k){
 }
 
 /* ---------------- 用量与限流 ---------------- */
+/* "当日"按这台电脑的本地日期算：用 UTC 的话，早上 8 点就突然换天，跟课堂作息对不上。 */
+function dayKey(){
+  const d=new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
 function usage(){
   const u=readJson(USAGE,null);
-  const today=new Date().toISOString().slice(0,10);
+  const today=dayKey();
   if(!u||u.day!==today)return{day:today,global:0,sessions:{}};
   return u;
 }
 let usageMem=usage(), usageFlush=null;
 function bump(sid){
-  const today=new Date().toISOString().slice(0,10);
+  const today=dayKey();
   if(usageMem.day!==today)usageMem={day:today,global:0,sessions:{}};
   usageMem.global++;
   const now=Date.now();
@@ -174,7 +180,7 @@ function bump(sid){
   return{global:usageMem.global,session:s.n,resetIn:Math.max(0,WINDOW_MS-(now-s.t))};
 }
 function peek(sid){
-  const today=new Date().toISOString().slice(0,10);
+  const today=dayKey();
   if(usageMem.day!==today)return{global:0,session:0,resetIn:0};
   const s=usageMem.sessions[sid];
   const now=Date.now();
@@ -371,6 +377,7 @@ const server=http.createServer(async(req,res)=>{
         const salt=crypto.randomBytes(16).toString("hex");
         next.lock={salt,hash:hashPw(pw,salt),setAt:Date.now()};
         writeJson(CFG,next);
+        tokens.clear();                    /* 改密码要让旧令牌一起失效，不能只发新的 */
         const t=issueToken();
         return json(res,200,{ok:true,token:t,ttlMinutes:120,note:"密码已设。之前发出去的公网链接不受影响；这台电脑之外的浏览器要改配置得先解锁。"});
       }
@@ -410,24 +417,30 @@ const server=http.createServer(async(req,res)=>{
 
     if(path==="/api/chat"&&req.method==="POST"){
       const sid=ensureSid(req,res);
-      const u=bump(sid);
-      if(c.per10min>0&&u.session>c.per10min)
-        return json(res,429,{ok:false,error:"这个会话 10 分钟内问了 "+u.session+" 次，先歇 "+Math.ceil(u.resetIn/1000)+" 秒。"},
-          {"Retry-After":String(Math.ceil(u.resetIn/1000))});
-      if(c.dayMax>0&&u.global>c.dayMax)
-        return json(res,429,{ok:false,error:"今天全场已经用了 "+u.global+" 次，到封顶了。明天自动恢复，或让老师改 local/config.json 里 rate.dayMax。"});
+      /* 先校验再记账：格式错的请求、被限流挡下的请求都没真的打到上游，
+         不该吃当天的额度，否则学生刷新几下就能把全班的日配额耗光。 */
       let payload;
       try{payload=sanitize(await readBody(req))}
       catch(e){return json(res,e.code||400,{ok:false,error:e.message})}
+      const u=peek(sid);
+      if(c.per10min>0&&u.session>=c.per10min)
+        return json(res,429,{ok:false,error:"这个会话 10 分钟内已经问了 "+u.session+" 次，先歇 "+Math.ceil(u.resetIn/1000)+" 秒。"},
+          {"Retry-After":String(Math.ceil(u.resetIn/1000))});
+      if(c.dayMax>0&&u.global>=c.dayMax)
+        return json(res,429,{ok:false,error:"今天全场已经用了 "+u.global+" 次，到封顶了。明天自动恢复，或让老师改 local/config.json 里 rate.dayMax。"});
+      bump(sid);
       const t0=Date.now();
       /* 浏览器那头一断（刷新、关页、切题），立刻取消上游请求：
          流式生成是边产边推的，掐了连接通常也就止住了后面那几十秒的计费。
          注意：abort() 会把被取消请求的 rejection 抛出去，必须自己吞掉——
          之前没吞，客户端一刷新就能把整个服务进程打挂。 */
       const ac=new AbortController();
-      let upstreamDone=false;
+      let upstreamDone=false, streaming=false;
       res.on("close",()=>{
-        if(res.writableEnded||upstreamDone)return;
+        if(res.writableEnded)return;
+        /* 非流式的小窗口里上游已返回，abort 只会制造没人接的 rejection；
+           流式期间则必须 abort，否则学生一关页面，上游还在边生成边计费。 */
+        if(upstreamDone&&!streaming)return;
         try{ac.abort()}catch(_){}
       });
       let up;
@@ -445,15 +458,23 @@ const server=http.createServer(async(req,res)=>{
         return json(res,502,{ok:false,error:"上游 HTTP "+ures.status+" "+hint,raw:txt});
       }
       if(payload.stream&&ct.includes("event-stream")){
+        streaming=true;
         res.writeHead(200,{"Content-Type":"text/event-stream; charset=utf-8","Cache-Control":"no-store",
           "X-Accel-Buffering":"no","Connection":"keep-alive"});
         try{
           for await(const chunk of ures.body){
-            if(ac.signal.aborted||res.writableEnded)break;
-            if(!res.write(chunk))await new Promise(r=>res.once("drain",r));
+            if(ac.signal.aborted||res.writableEnded||res.destroyed)break;
+            if(!res.write(chunk))await new Promise(r=>{
+              const done=()=>{res.off("drain",done);res.off("close",done);r()};
+              res.once("drain",done);res.once("close",done);
+            });
           }
         }catch(_){/* 客户端断开或上游提前收尾，下面统一 end */}
-        finally{try{ures.body&&ures.body.cancel&&ures.body.cancel()}catch(_){}res.end()}
+        finally{
+          streaming=false;
+          try{ures.body&&ures.body.cancel&&ures.body.cancel()}catch(_){}
+          if(!res.destroyed)try{res.end()}catch(_){}
+        }
         return;
       }
       const j=await ures.json().catch(()=>null);
@@ -500,6 +521,7 @@ server.listen(PORT,BIND,()=>{
   console.log("  上游      "+(c.baseUrl?c.baseUrl+"  模型 "+c.model:"未配置（打开 local/config.json 填 baseUrl / model / key，或在页面「设置」里改）"));
   console.log("  Key       "+(c.key?"已配置，只留在本机，不会发给浏览器":"未配置"));
   console.log("  管理锁    "+(lockInfo()?"已设密码：改配置要先解锁（忘了就删 config.json 的 lock 段重启）":"未设密码：只有这台电脑自己的浏览器能改配置"));
-  console.log("  限流      每会话 "+c.per10min+" 次/10 分钟，全场 "+c.dayMax+" 次/天（local/config.json 的 rate 可调，0 是不限）");
+  console.log("  限流      "+(c.per10min>0?"每会话 "+c.per10min+" 次/10 分钟":"每会话不限")+"，"
+    +(c.dayMax>0?"全场 "+c.dayMax+" 次/天":"全场不限")+"（local/config.json 的 rate 可调，0 是不限）");
   console.log("\n  配置文件 local/config.json 每次请求现读，改完不用重启。");
 });

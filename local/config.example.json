@@ -4,5 +4,5 @@
     "model": "qwen-max",
     "key": ""
   },
-  "rate": { "per10min": 40, "dayMax": 400 }
+  "rate": { "per10min": 0, "dayMax": 0 }
 }

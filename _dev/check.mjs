@@ -89,21 +89,24 @@ async function main() {
   const role = await hit("/api/chat", { method: "POST", headers: { "content-type": "application/json", cookie: "gapsid=" + SID }, body: JSON.stringify({ messages: [{ role: "tool", content: "x" }] }) });
   ok("非白名单 role 被拒", role.status === 400, role.status);
 
-  /* 6. 限流：按服务端实际限额来打 */
+  /* 6. 限流：先写一个确定的有限额再打——默认值已经是不限（0/0），
+     照旧按"服务端当前额度"来打会永远等不到 429。 */
+  const fs = await import("node:fs");
+  const cfgPath = new URL("../local/config.json", import.meta.url);
+  const keep = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+  fs.writeFileSync(cfgPath, JSON.stringify(Object.assign(JSON.parse(JSON.stringify(keep)), { rate: { per10min: 6, dayMax: 1000 } }), null, 2), { mode: 0o600 });
+  await new Promise(r => setTimeout(r, 150));
   const lim = (await (await fetch(BASE + "/api/status")).json()).limit || {};
-  const cap = Math.min(80, Math.max(2, (Number(lim.per10min) || 40) + 2));
+  const cap = Math.min(80, Math.max(2, (Number(lim.per10min) || 0) + 2));
   let got429 = 0, codes = [];
   for (let i = 0; i < cap; i++) {
     const r = await ask();
     codes.push(r.status);
     if (r.status === 429) { got429 = i + 1; break; }
   }
-  ok("每会话 10 分钟限流生效", got429 > 0, "限额 " + (lim.per10min || 40) + "，第 " + got429 + " 次被限，末段 " + codes.slice(-3).join(","));
+  ok("每会话 10 分钟限流生效", got429 > 0, "限额 " + lim.per10min + "，第 " + got429 + " 次被限，末段 " + codes.slice(-3).join(","));
 
   /* 7. 上游挂了要给人话 */
-  const fs = await import("node:fs");
-  const cfgPath = new URL("../local/config.json", import.meta.url);
-  const keep = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
   fs.writeFileSync(cfgPath, JSON.stringify(Object.assign(JSON.parse(JSON.stringify(keep)), { upstream: Object.assign({}, keep.upstream, { baseUrl: "http://127.0.0.1:4999/v1" }) }), null, 2));
   await new Promise(r => setTimeout(r, 150));
   const dead = await hit("/api/chat", { method: "POST", headers: { "content-type": "application/json", cookie: "gapsid=" + SID + "x" }, body: CHAT });
@@ -119,6 +122,27 @@ async function main() {
   let any429=0;
   for(let i=0;i<12;i++){const r=await ask();if(r.status===429)any429++}
   ok("0＝不限 真的不限（连问 12 次没被拦）",any429===0,"被拦 "+any429+" 次");
+
+  /* 8b. 记账口径：格式错的、被会话限流挡下的，都没打到上游，不该吃全场日额度 */
+  const usedNow=async()=>(await (await fetch(BASE+"/api/status")).json()).used.global;
+  const askAs=sid=>hit("/api/chat",{method:"POST",headers:{"content-type":"application/json",cookie:"gapsid="+sid},body:CHAT});
+  const sidA=Math.random().toString(16).slice(2,10)+Date.now().toString(16);
+  let base=await usedNow();
+  writeCfg(Object.assign({},keep,{rate:{per10min:1000,dayMax:base+1}}));
+  await new Promise(r=>setTimeout(r,150));
+  for(let i=0;i<4;i++)await hit("/api/chat",{method:"POST",headers:{"content-type":"application/json",cookie:"gapsid="+sidA},body:JSON.stringify({messages:[]})});
+  const firstOk=await askAs(sidA),secondBlocked=await askAs(sidA);
+  ok("格式错的请求不吃当日额度",firstOk.status===200&&secondBlocked.status===429,"首问 "+firstOk.status+"，次问 "+secondBlocked.status);
+
+  base=await usedNow();
+  const sidB=Math.random().toString(16).slice(2,10)+Date.now().toString(16);
+  const sidC=Math.random().toString(16).slice(2,10)+Date.now().toString(16);
+  writeCfg(Object.assign({},keep,{rate:{per10min:1,dayMax:base+10}}));
+  await new Promise(r=>setTimeout(r,150));
+  const a1=await askAs(sidB),a2=await askAs(sidB),a3=await askAs(sidB);
+  const c1=await askAs(sidC);
+  ok("被会话限流挡下的请求不吃全场额度",a1.status===200&&a2.status===429&&a3.status===429&&c1.status===200&&(await usedNow())===base+2,
+    "会话内 "+[a1.status,a2.status,a3.status].join("/")+"，换会话 "+c1.status+"，全局 "+(await usedNow())+"（应 "+(base+2)+"）");
   writeCfg(keep);
 
   /* 9. Fix3：解锁限流按来源分桶——一个人刷错密码不能把老师也关在门外 */
