@@ -1,0 +1,23 @@
+# 只让浏览器能看的文件进入 Workers Assets。
+# 本地配置、源码、开发脚本和构建产物都不能被上传成公开静态文件。
+.git
+.gitignore
+.assetsignore
+.wrangler
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+*.pem
+*.key
+secrets*
+node_modules
+local
+_dev
+deploy
+server.mjs
+worker.mjs
+wrangler.jsonc
+package.json
+package-lock.json
+README.md

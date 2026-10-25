@@ -9,3 +9,8 @@ local/*
 *.log
 .DS_Store
 Thumbs.db
+
+# Cloudflare / Wrangler 本地状态与开发密钥
+node_modules/
+.wrangler/
+.dev.vars

@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mao-gai-policy-gap",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-25",
+  "upload_source_maps": true,
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "UPSTREAM_BASE_URL": "https://api.deepseek.com",
+    "UPSTREAM_MODEL": "deepseek-chat"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

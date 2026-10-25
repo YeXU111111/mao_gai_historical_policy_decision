@@ -855,9 +855,10 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
     </section>
 
     <div id="hosted-cfg" style="display:none">
-      <section class="sec">
-        <h3 class="sec-h">上游模型<span class="sec-sub">存在老师那台电脑上</span></h3>
+      <section class="sec" id="sec-upstream">
+        <h3 class="sec-h">上游模型<span class="sec-sub" id="h-upstream-sub">存在老师那台电脑上</span></h3>
         <p class="note" id="h-state">正在读服务端配置…</p>
+        <p class="note" id="h-managed-note" style="display:none"></p>
         <div class="field"><label>服务商</label><select id="h-prov"></select></div>
         <div class="field"><label>Base URL（填到 /v1 为止）</label><input id="h-url" placeholder="https://…/v1"></div>
         <div class="field"><label>模型名</label><input id="h-model" placeholder="qwen-max"></div>
@@ -875,7 +876,7 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
         <p class="note" id="hosted-note" style="display:none"></p>
       </section>
 
-      <section class="sec">
+      <section class="sec" id="sec-quota">
         <h3 class="sec-h">课堂配额<span class="sec-sub">0 表示不限（默认）</span></h3>
         <div class="row2">
           <div class="field" style="flex:1;min-width:150px"><label>每会话 10 分钟内最多</label><input id="h-per" type="number" min="0" step="5"></div>
@@ -883,7 +884,7 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
         </div>
       </section>
 
-      <section class="sec">
+      <section class="sec" id="sec-lock">
         <h3 class="sec-h">管理锁<span class="sec-sub">防课堂上别人动手改</span></h3>
         <p class="note">设了密码之后，任何浏览器（包括这台电脑自己的）都要先解锁才写得动配置。</p>
         <div class="field"><label>解锁</label>
@@ -1837,7 +1838,7 @@ function statusLine(){
     const ok=!!upstream.modelConfigured;
     d.className="dot "+(ok?"ok":"warn");
     const used=upstream.used&&upstream.used.session, lim=upstream.limit&&upstream.limit.per10min;
-    const lock=upstream.lockSet?(upstream.writable?"　·　配置已解锁":"　·　配置已上锁"):"　·　未设管理密码（只有本机能改配置）";
+    const lock=upstream.managed?"　·　配置由 Cloudflare 托管":(upstream.lockSet?(upstream.writable?"　·　配置已解锁":"　·　配置已上锁"):"　·　未设管理密码（只有本机能改配置）");
     t.textContent=ok
       ?(upstream.model||"（模型名空）")+" @ "+(upstream.baseUrlHost||"本机服务")
         +"　·　Key 存在服务端，不下发明文"
@@ -1922,6 +1923,11 @@ function hSay(text,kind){const p=$("#h-result");p.textContent=text||"";p.style.c
 function hState(){
   const p=$("#h-state");
   if(!hCfg){p.textContent="正在读服务端配置…";return}
+  if(hCfg.managed){
+    p.textContent="配置由 Cloudflare Workers 托管：模型与 Key 在 Cloudflare 的变量/Secret 中设置，这里只读。";
+    p.style.color="var(--bc2)";
+    return;
+  }
   const locked=!!hCfg.lockSet, has=!!hTok();
   if(locked&&has)p.textContent="已解锁：改动可以直接保存（令牌 2 小时内有效，关掉这个标签页就要重新解锁）。";
   else if(locked)p.textContent="已设管理密码，现在没解锁——改不动配置。先在下面输一次密码解锁。";
@@ -1941,6 +1947,7 @@ async function hLoad(keepForm){
     const r=await fetch("/api/settings",{credentials:"same-origin"});
     if(!r.ok)throw new Error("HTTP "+r.status);
     hCfg=await r.json();
+    const managed=!!hCfg.managed;
     /* keepForm：解锁失败/保存被拒时只刷状态，别把用户刚填的字冲回服务端旧值 */
     if(!keepForm){
       $("#h-url").value=hCfg.baseUrl||"";
@@ -1950,6 +1957,22 @@ async function hLoad(keepForm){
       const dd=$("#h-dirty");if(dd)dd.classList.remove("on");   /* 已与服务器对齐 */
       const p=PRESETS.find(x=>x.url.replace(/\/+$/,"")===String(hCfg.baseUrl||"").replace(/\/+$/,""));
       $("#h-prov").value=p?p.id:(hCfg.baseUrl?"custom":"dashscope");
+    }
+    /* Cloudflare Workers 托管时没有可写的本地配置：字段只读，锁/配额/保存全部收起。 */
+    ["#h-url","#h-model","#h-key","#h-per","#h-day","#h-prov"].forEach(s=>{const e=$(s);if(e)e.disabled=managed});
+    ["#h-save","#h-test","#h-clearkey","#h-eye"].forEach(s=>{const e=$(s);if(e)e.style.display=managed?"none":""});
+    ["#sec-quota","#sec-lock"].forEach(s=>{const e=$(s);if(e)e.style.display=managed?"none":"block"});
+    const mn=$("#h-managed-note");
+    if(mn){mn.style.display=managed?"block":"none";
+      mn.textContent=managed?"Key 存在 Cloudflare Secret 中，页面永远拿不到；换 Key 或模型请用 Cloudflare 控制台 / wrangler 修改 Worker 的 Secret 与变量。":""}
+    const hn=$("#hosted-note");
+    if(hn&&managed)hn.textContent="这里没有保存按钮：部署配置属于 Cloudflare Worker，不属于这个浏览器。温度与逐字显示仍只存在你这台电脑的浏览器里。";
+    $("#h-key").placeholder=managed?"由 Cloudflare Worker 托管，页面只读":"留空＝保持原来那把不动";
+    const hsub=$("#h-upstream-sub");
+    if(hsub)hsub.textContent=managed?"存在 Cloudflare 上":"存在老师那台电脑上";
+    if(managed){
+      $("#set-lead").textContent="这个页面由 Cloudflare Workers 托管，不再依赖某台电脑开机。模型与 Key 在 Cloudflare 的 Worker 变量/Secret 中设置，下面配置只读。";
+      $("#set-note").textContent="页面与上游之间由 Cloudflare Worker 代理；要换 Key 或模型，请修改 Worker 的 Secret / 环境变量并重新部署。";
     }
     /* 首次设密码与之后改密码是两件事：没锁只显示"设置"，有锁才显示"修改/取消" */
     const pwSet=$("#sec-pw-set"),pwChg=$("#sec-pw-change");
