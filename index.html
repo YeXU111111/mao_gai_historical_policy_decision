@@ -752,8 +752,8 @@ pre.rules{background:#fbf4e6;border-color:var(--b4);color:var(--bc2)}
         <span class="eras-label">时期</span>
         <button data-era="any" class="on">不限</button>
         <button data-era="qing">晚清 1840–1911</button>
-        <button data-era="republic">民国前期 1911–1937</button>
-        <button data-era="war">抗战与解放 1937–1949</button>
+        <button data-era="republic">民国前期 1912–1930</button>
+        <button data-era="war">抗战与解放 1931–1949</button>
         <button data-era="prc">建国后 1949–1978</button>
         <button data-era="reform">改革开放 1978 后</button>
       </div>
@@ -1110,8 +1110,8 @@ const THEORY_RULES=`你是"中间那一步"课堂游戏的理论对照者。玩�
 const ERAS=[
   {id:"any",label:"不限",rule:""},
   {id:"qing",label:"晚清 1840–1911",from:1840,to:1911,rule:"只出 1840—1911 年（晚清）之间的事件。"},
-  {id:"republic",label:"民国前期 1911–1937",from:1911,to:1937,rule:"只出 1911—1937 年（民国前期）之间的事件。"},
-  {id:"war",label:"抗战与解放 1937–1949",from:1937,to:1949,rule:"只出 1937—1949 年（全面抗战到解放战争）之间的事件。"},
+  {id:"republic",label:"民国前期 1912–1930",from:1912,to:1930,rule:"只出 1912—1930 年（民国前期）之间的事件。"},
+  {id:"war",label:"抗战与解放 1931–1949",from:1931,to:1949,rule:"只出 1931—1949 年（抗日战争与解放战争）之间的事件；抗日战争从 1931 年九一八事变算起。"},
   {id:"prc",label:"建国后 1949–1978",from:1949,to:1978,rule:"只出 1949—1978 年（新中国成立到改革开放前）之间的事件。"},
   {id:"reform",label:"改革开放 1978 后",from:1978,to:2100,rule:"只出 1978 年以后（改革开放以来）的事件。"},
 ];
@@ -1575,7 +1575,7 @@ function renderArchive(){
       +(a.gaveUp&&!a.tries.length?"直接放弃":a.tries.length+" 次")+" · "
       +(a.verdict==="correct"?"填对":a.verdict==="reveal"?"已公布":"未填对")
       +(a.earned===undefined?"":(a.earned?" · 得 "+a.earned+" 分":" · 0 分"))+(a.map&&a.map.phase==="done"?" · 含理论对照":"")+" · "
-      +new Date(a.t).toLocaleString("zh-CN",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+      +fmtTime(a.t);
     top.append(nm,mt);
     const l1=document.createElement("div");l1.className="arc-line";
     l1.textContent="题面："+String(a.period||a.premise||"").replace(/\s+/g," ").slice(0,66);
@@ -1604,11 +1604,17 @@ function renderArchive(){
     d.append(top,l1,l2,det,btns);box.appendChild(d);
   }
 }
+function fmtTime(ts){
+  const d=ts instanceof Date?ts:new Date(ts);
+  const p=n=>String(n).padStart(2,"0");
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());
+}
 function exportMd(list){
   const out=["# 中间那一步 · 答卷导出","","-".repeat(20),""];
   for(const a of list){
     out.push("## "+(a.period||"")+"　"+(a.answer||""),
       "",
+      "- 记录时间："+fmtTime(a.t),
       "- 粒度："+(a.scope==="point"?"一个具体政策":"一段大事件"),
       "- 结果：判卷时 "+(a.verdict==="correct"?"填对":a.verdict==="reveal"?"已公布":"未填对")+"（用了 "+a.tries.length+" 次）",
       "",
@@ -1625,7 +1631,7 @@ function exportMd(list){
   const blob=new Blob([out.join("\n")],{type:"text/markdown;charset=utf-8"});
   const x=document.createElement("a");
   x.href=URL.createObjectURL(blob);
-  x.download="中间那一步_答卷_"+new Date().toISOString().slice(0,10)+".md";
+  x.download="中间那一步_答卷_"+fmtTime(Date.now()).slice(0,10)+".md";
   document.body.appendChild(x);x.click();x.remove();
   setTimeout(()=>URL.revokeObjectURL(x.href),4000);
 }

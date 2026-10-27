@@ -98,6 +98,8 @@ ok("yearOf 取到年份", A.yearOf("1935年1月，遵义。") === 1935);
 ok("yearOf 取不到返回 null", A.yearOf("很久以前") === null);
 ok("inEra 边界内", A.inEra(1940, "war") === true);
 ok("inEra 边界外", A.inEra(1930, "war") === false);
+ok("抗战从 1931 年算起", A.inEra(1931, "war") === true, "1931 应属于抗战与解放");
+ok("民国前期从 1912 年算起", A.inEra(1912, "republic") === true && A.inEra(1911, "republic") === false, "1911 应属于晚清");
 ok("inEra 不限时期一律通过", A.inEra(1000, "any") === true);
 ok("未知时期回落成不限", A.eraById("bogus").id === "any");
 ok("六个时期都在", A.ERAS.length === 6, A.ERAS.map(e => e.id).join(","));
