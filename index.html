@@ -1333,10 +1333,13 @@ async function askNew(){
       const view={period:f["时期"]||"",premise:f["前提"],result:f["结果"],
         answer:f["答案"],points:f["要点"],lure:f["岔路"]||""};
       const leak=checkLeak(view),rep=isRepeat(view,st.recent);
-      /* 模型可能无视时期约束，从题面里抽第一个四位年份核一遍 */
+      /* 模型可能无视时期约束，从题面里抽第一个四位年份核一遍；
+         选了时期范围却没有四位年份的题面无法核对，也按不合格退回。 */
       const y=yearOf(view.period)||yearOf(view.premise);
-      const eraBad=(st.era!=="any"&&y!==null&&!inEra(y,st.era))
-        ?("出成了 "+y+" 年，不在「"+eraById(st.era).label+"」范围内"):"";
+      const eraBad=st.era==="any"?""
+        :(y===null
+          ?("【时期】或【前提】里没有可核对的四位年份，无法确认落在「"+eraById(st.era).label+"」范围内")
+          :(!inEra(y,st.era)?("出成了 "+y+" 年，不在「"+eraById(st.era).label+"」范围内"):""));
       if(!leak.length&&!rep&&!eraBad){
         st.qRaw=raw;st.q=view;st.phase="question";st.gaveUp=false;
         st.recent.push({a:view.answer.split("\n")[0],p:view.period,pc:view.premise});
@@ -1606,6 +1609,7 @@ function renderArchive(){
 }
 function fmtTime(ts){
   const d=ts instanceof Date?ts:new Date(ts);
+  if(Number.isNaN(d.getTime()))return "未知时间";
   const p=n=>String(n).padStart(2,"0");
   return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());
 }
